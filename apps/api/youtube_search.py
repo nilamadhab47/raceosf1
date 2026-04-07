@@ -1,18 +1,88 @@
-"""YouTube highlight search via yt-dlp + Anthropic fallback.
+"""YouTube highlight search — YouTube Data API v3 (embeddable only) + fallbacks.
 
 Strategy:
-1. yt-dlp ytsearch (fast, no API key, reliable)
-2. Anthropic Claude fallback (asks for a real video ID, validates via thumbnail)
+1. YouTube Data API v3 — free, 10k quota/day, filters for embeddable videos
+2. yt-dlp ytsearch fallback (no API key needed)
+3. Anthropic Claude fallback (asks for a real video ID, validates via oEmbed)
+
+Results are cached in-memory for 1 hour to minimize API quota usage.
 """
 
 import logging
 import asyncio
+import time
 from typing import Optional
 
 import httpx
 
 logger = logging.getLogger(__name__)
 
+# ─── In-memory cache ─────────────────────────────────────────────────
+_search_cache: dict[str, tuple[list[dict], float]] = {}
+_SEARCH_CACHE_TTL = 3600  # 1 hour
+
+
+def _get_cached(key: str) -> list[dict] | None:
+    if key in _search_cache:
+        results, expires = _search_cache[key]
+        if time.time() < expires:
+            return results
+        del _search_cache[key]
+    return None
+
+
+def _set_cached(key: str, results: list[dict]) -> None:
+    _search_cache[key] = (results, time.time() + _SEARCH_CACHE_TTL)
+
+
+# ─── 1. YouTube Data API v3 ─────────────────────────────────────────
+
+async def _search_youtube_api(query: str, max_results: int = 5) -> list[dict]:
+    """Search via YouTube Data API v3 — only returns embeddable videos."""
+    import os
+    api_key = os.getenv("YOUTUBE_API_KEY", "")
+    if not api_key:
+        logger.info("No YOUTUBE_API_KEY set — skipping YouTube Data API")
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                "https://www.googleapis.com/youtube/v3/search",
+                params={
+                    "part": "snippet",
+                    "q": query,
+                    "type": "video",
+                    "videoEmbeddable": "true",
+                    "maxResults": max_results,
+                    "order": "relevance",
+                    "key": api_key,
+                },
+            )
+            resp.raise_for_status()
+            data = resp.json()
+
+            results = []
+            for item in data.get("items", []):
+                vid = item["id"].get("videoId")
+                snippet = item.get("snippet", {})
+                if vid:
+                    results.append({
+                        "videoId": vid,
+                        "title": snippet.get("title", ""),
+                        "thumbnail": snippet.get("thumbnails", {}).get("medium", {}).get("url",
+                            f"https://i.ytimg.com/vi/{vid}/mqdefault.jpg"),
+                        "channelTitle": snippet.get("channelTitle", ""),
+                        "lengthSeconds": 0,
+                        "viewCount": 0,
+                    })
+            return results
+    except Exception as exc:
+        logger.error("YouTube Data API search failed: %s", exc)
+        return []
+
+
+# ─── 2. yt-dlp fallback ─────────────────────────────────────────────
 
 def _search_ytdlp(query: str, max_results: int = 5) -> list[dict]:
     """Search YouTube via yt-dlp (extract_flat — metadata only, no download)."""
@@ -50,11 +120,12 @@ def _search_ytdlp(query: str, max_results: int = 5) -> list[dict]:
         return []
 
 
+# ─── 3. Anthropic fallback ───────────────────────────────────────────
+
 async def _validate_video_id(video_id: str) -> bool:
     """Quick check: does this YouTube video ID actually exist?"""
     try:
         async with httpx.AsyncClient(timeout=5) as client:
-            # oEmbed returns 200 for valid videos, 4xx for invalid
             resp = await client.get(
                 f"https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v={video_id}&format=json"
             )
@@ -90,9 +161,7 @@ async def _search_anthropic(year: int, gp_name: str) -> list[dict]:
         )
         reply = response.content[0].text.strip()
 
-        # Validate format
         if len(reply) == 11 and reply != "UNKNOWN" and reply.replace("-", "").replace("_", "").isalnum():
-            # Validate the video actually exists
             if await _validate_video_id(reply):
                 return [
                     {
@@ -109,40 +178,49 @@ async def _search_anthropic(year: int, gp_name: str) -> list[dict]:
         return []
 
 
-async def search_highlights(year: int, gp_name: str) -> list[dict]:
-    """Search for F1 race highlights. yt-dlp first, Anthropic fallback."""
-    query = f"F1 {year} {gp_name} Grand Prix race highlights official"
+# ─── Main search function ────────────────────────────────────────────
 
-    # 1. Try yt-dlp (runs in thread to avoid blocking)
-    results = await asyncio.to_thread(_search_ytdlp, query, 5)
+async def search_highlights(year: int, gp_name: str) -> list[dict]:
+    """Search for embeddable F1 race highlights. Cached for 1 hour."""
+    cache_key = f"{year}-{gp_name.lower().strip()}"
+    cached = _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    query = f"F1 {year} {gp_name} Grand Prix race highlights"
+
+    # 1. YouTube Data API v3 (embeddable filter)
+    results = await _search_youtube_api(query, 5)
     if results:
+        _set_cached(cache_key, results)
         return results
 
-    # 2. Anthropic fallback
+    # 2. yt-dlp fallback
+    results = await asyncio.to_thread(_search_ytdlp, query, 5)
+    if results:
+        _set_cached(cache_key, results)
+        return results
+
+    # 3. Anthropic fallback
     results = await _search_anthropic(year, gp_name)
     if results:
+        _set_cached(cache_key, results)
         return results
 
     return []
 
 
-# ─── Direct stream URL extraction (for in-app video playback) ────────
+# ─── Stream URL (kept for backwards compat) ──────────────────────────
 
-import time
-
-# Cache: videoId -> (direct_url, expire_timestamp)
 _stream_cache: dict[str, tuple[str, float]] = {}
-_CACHE_TTL = 3 * 3600  # 3 hours (googlevideo URLs last ~6h)
+_STREAM_CACHE_TTL = 3 * 3600
 
 
 def _extract_stream_url(video_id: str) -> Optional[str]:
-    """Extract a direct MP4 stream URL from YouTube via yt-dlp."""
     try:
         import yt_dlp
     except ImportError:
-        logger.warning("yt-dlp not installed")
         return None
-
     ydl_opts = {
         "format": "best[height<=720][ext=mp4]/best[height<=480][ext=mp4]/best[ext=mp4]",
         "quiet": True,
@@ -150,9 +228,7 @@ def _extract_stream_url(video_id: str) -> Optional[str]:
     }
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(
-                f"https://www.youtube.com/watch?v={video_id}", download=False
-            )
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
             return info.get("url")
     except Exception as exc:
         logger.error("yt-dlp stream extraction failed for %s: %s", video_id, exc)
@@ -160,17 +236,12 @@ def _extract_stream_url(video_id: str) -> Optional[str]:
 
 
 async def get_stream_url(video_id: str) -> Optional[str]:
-    """Get a direct stream URL, using cache when available."""
     now = time.time()
-
-    # Check cache
     if video_id in _stream_cache:
         url, expires = _stream_cache[video_id]
         if now < expires:
             return url
-
-    # Extract fresh URL
     url = await asyncio.to_thread(_extract_stream_url, video_id)
     if url:
-        _stream_cache[video_id] = (url, now + _CACHE_TTL)
+        _stream_cache[video_id] = (url, now + _STREAM_CACHE_TTL)
     return url
