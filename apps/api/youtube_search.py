@@ -180,34 +180,64 @@ async def _search_anthropic(year: int, gp_name: str) -> list[dict]:
 
 # ─── Main search function ────────────────────────────────────────────
 
+def _tag_youtube(results: list[dict]) -> list[dict]:
+    """Add platform metadata to YouTube results."""
+    for r in results:
+        r.setdefault("platform", "youtube")
+        r.setdefault("embedUrl", f"https://www.youtube-nocookie.com/embed/{r['videoId']}?autoplay=1&mute=1&rel=0&modestbranding=1")
+        r.setdefault("watchUrl", f"https://www.youtube.com/watch?v={r['videoId']}")
+    return results
+
+
 async def search_highlights(year: int, gp_name: str) -> list[dict]:
-    """Search for embeddable F1 race highlights. Cached for 1 hour."""
+    """Search for embeddable F1 race highlights. Cached for 1 hour.
+    
+    Returns results from ALL sources combined:
+    - Dailymotion (embeddable, FOM rarely blocks)
+    - YouTube non-blocked content (onboard, analysis, review)
+    - YouTube highlights (thumbnail cards — may be embed-blocked by FOM)
+    """
     cache_key = f"{year}-{gp_name.lower().strip()}"
     cached = _get_cached(cache_key)
     if cached is not None:
         return cached
 
-    query = f"F1 {year} {gp_name} Grand Prix race highlights"
+    from dailymotion_search import search_dailymotion
 
-    # 1. YouTube Data API v3 (embeddable filter)
-    results = await _search_youtube_api(query, 5)
-    if results:
-        _set_cached(cache_key, results)
-        return results
+    all_results: list[dict] = []
 
-    # 2. yt-dlp fallback
-    results = await asyncio.to_thread(_search_ytdlp, query, 5)
-    if results:
-        _set_cached(cache_key, results)
-        return results
+    # 1. Dailymotion — embeddable F1 highlights (best chance of working)
+    dm_query = f"F1 {year} {gp_name} Grand Prix highlights"
+    dm_results = await search_dailymotion(dm_query, 3)
+    all_results.extend(dm_results)
 
-    # 3. Anthropic fallback
-    results = await _search_anthropic(year, gp_name)
-    if results:
-        _set_cached(cache_key, results)
-        return results
+    # 2. YouTube — non-blocked content (onboard, analysis, review)
+    yt_alt_query = f"F1 {year} {gp_name} onboard race analysis review"
+    yt_alt = await _search_youtube_api(yt_alt_query, 3)
+    all_results.extend(_tag_youtube(yt_alt))
 
-    return []
+    # 3. YouTube — race highlights (may be blocked for embed, still useful as thumbnail cards)
+    yt_query = f"F1 {year} {gp_name} Grand Prix race highlights"
+    yt_highlights = await _search_youtube_api(yt_query, 3)
+    all_results.extend(_tag_youtube(yt_highlights))
+
+    # Fallback: yt-dlp if no API key
+    if not all_results:
+        yt_fallback = await asyncio.to_thread(_search_ytdlp, yt_query, 5)
+        all_results.extend(_tag_youtube(yt_fallback))
+
+    # Deduplicate by videoId + platform
+    seen = set()
+    deduped = []
+    for r in all_results:
+        key = f"{r.get('platform', 'youtube')}:{r['videoId']}"
+        if key not in seen:
+            seen.add(key)
+            deduped.append(r)
+
+    if deduped:
+        _set_cached(cache_key, deduped)
+    return deduped
 
 
 # ─── Stream URL (kept for backwards compat) ──────────────────────────
