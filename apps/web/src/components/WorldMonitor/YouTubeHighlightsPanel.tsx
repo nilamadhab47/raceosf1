@@ -4,8 +4,7 @@ import { useState, useEffect, useRef, memo } from "react";
 import { useF1Store } from "@/store/f1-store";
 import { useTimeline } from "@/engines/Timeline";
 import { searchYouTubeHighlights, getStaticHighlights, type YouTubeResult } from "@/lib/youtubeHighlights";
-import { api } from "@/lib/api";
-import { Play, ExternalLink, Loader2, Eye, Clock, Trophy, Volume2, VolumeX, Maximize2 } from "lucide-react";
+import { Play, ExternalLink, Loader2, Eye, Clock, Trophy } from "lucide-react";
 
 const YouTubeHighlightsPanelInner = () => {
   const session = useF1Store((s) => s.session);
@@ -15,9 +14,7 @@ const YouTubeHighlightsPanelInner = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [playing, setPlaying] = useState<string | null>(null);
-  const [muted, setMuted] = useState(true);
   const [videoError, setVideoError] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
   const wasSimulating = useRef(false);
 
   // Auto-load highlights when session changes — no manual search needed
@@ -63,22 +60,12 @@ const YouTubeHighlightsPanelInner = () => {
     }
   }, [results, playing]);
 
-  // Auto-play/resume when simulation starts
+  // Auto-play when simulation starts
   useEffect(() => {
     if (isSimulating && !wasSimulating.current) {
-      // Simulation just started
       if (results.length > 0 && !playing) {
         setPlaying(results[0].videoId);
         setVideoError(false);
-      }
-      if (videoRef.current && videoRef.current.paused) {
-        videoRef.current.play().catch(() => {});
-      }
-    }
-    if (!isSimulating && wasSimulating.current) {
-      // Simulation stopped — pause video
-      if (videoRef.current && !videoRef.current.paused) {
-        videoRef.current.pause();
       }
     }
     wasSimulating.current = isSimulating;
@@ -105,11 +92,6 @@ const YouTubeHighlightsPanelInner = () => {
   const playVideo = (videoId: string) => {
     setPlaying(videoId);
     setVideoError(false);
-  };
-
-  const toggleMute = () => {
-    setMuted((m) => !m);
-    if (videoRef.current) videoRef.current.muted = !muted;
   };
 
   const winner = leaderboard.find((e) => e.position === 1);
@@ -147,59 +129,23 @@ const YouTubeHighlightsPanelInner = () => {
           <>
             {/* ── Video Player ── */}
             <div className="rounded-[6px] overflow-hidden border border-f1-border bg-black relative group">
-              <video
-                ref={videoRef}
+              <iframe
                 key={playing}
-                src={api.getStreamUrl(playing)}
-                autoPlay
-                muted={muted}
-                playsInline
+                src={`https://www.youtube-nocookie.com/embed/${playing}?autoplay=1&mute=1&rel=0&modestbranding=1`}
+                allow="autoplay; encrypted-media; fullscreen"
+                allowFullScreen
                 className="w-full aspect-video bg-black"
-                onError={() => setVideoError(true)}
-                onEnded={() => {
-                  // Auto-play next video if available
-                  if (otherResults.length > 0) playVideo(otherResults[0].videoId);
-                }}
               />
 
               {/* Video overlay controls */}
-              <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/80 to-transparent opacity-0 group-hover:opacity-100 transition-opacity">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={toggleMute}
-                      className="p-1 rounded hover:bg-white/10 transition-colors"
-                      title={muted ? "Unmute" : "Mute"}
-                    >
-                      {muted ? (
-                        <VolumeX className="w-3.5 h-3.5 text-white/70" />
-                      ) : (
-                        <Volume2 className="w-3.5 h-3.5 text-white/70" />
-                      )}
-                    </button>
-                    {playingResult && (
-                      <span className="text-[9px] font-mono text-white/50 truncate max-w-[160px]">
-                        {playingResult.title}
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => videoRef.current?.requestFullscreen()}
-                      className="p-1 rounded hover:bg-white/10 transition-colors"
-                      title="Fullscreen"
-                    >
-                      <Maximize2 className="w-3.5 h-3.5 text-white/70" />
-                    </button>
+              <div className="absolute top-1 right-1 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
                       onClick={() => playing && openOnYouTube(playing)}
-                      className="p-1 rounded hover:bg-white/10 transition-colors"
+                      className="p-1 rounded bg-black/60 hover:bg-white/10 transition-colors"
                       title="Watch on YouTube (HD)"
                     >
                       <ExternalLink className="w-3.5 h-3.5 text-white/70" />
                     </button>
-                  </div>
-                </div>
               </div>
             </div>
 
@@ -219,7 +165,7 @@ const YouTubeHighlightsPanelInner = () => {
                   </span>
                 )}
                 <span className="text-[9px] text-white/20 font-mono ml-auto">
-                  Playing in-app • SD quality
+                  Embedded from YouTube
                 </span>
               </div>
             )}
