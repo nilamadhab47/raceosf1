@@ -1,0 +1,4 @@
+<svg width="500" height="500" xml:space="preserve" xmlns="http://www.w3.org/2000/svg">
+    <path style="fill: none; stroke: #fff; stroke-width: 20; stroke-linejoin: round; stroke-dasharray: none; stroke-opacity: 1;" d="M200 80 L340 80 C380 80 420 120 420 160 L420 200 L360 240 L420 280 L420 340 C420 400 380 440 320 440 L180 440 C120 440 80 400 80 340 L80 160 C80 120 120 80 160 80Z" />
+    <path style="fill: none; stroke: #000; stroke-width: 5; stroke-linejoin: round; stroke-dasharray: none; stroke-opacity: 1;" d="M200 80 L340 80 C380 80 420 120 420 160 L420 200 L360 240 L420 280 L420 340 C420 400 380 440 320 440 L180 440 C120 440 80 400 80 340 L80 160 C80 120 120 80 160 80Z" />
+</svg>

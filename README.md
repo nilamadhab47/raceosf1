@@ -31,6 +31,8 @@ AI-powered real-time second-screen web app for Formula 1 race analysis. Features
 - [Quick Start](#quick-start)
 - [Environment Variables](#environment-variables)
 - [Extending the Project](#extending-the-project)
+- [Roadmap / TODO](#roadmap--todo)
+- [Deployment](#deployment)
 
 ---
 
@@ -964,6 +966,92 @@ page.tsx
 ├── ToastProvider + RaceToastWatcher → f1-store (gsap)
 └── DriverFocusModal → f1-store, driverData
 ```
+
+---
+
+## Roadmap / TODO
+
+### UX Polish
+- [ ] **Panel fullscreen mode** — double-click any panel header to expand full-screen (Track Map, Telemetry)
+- [ ] **Export / Share snapshot** — capture current dashboard state as a shareable URL or screenshot
+- [ ] **Sound effects** — subtle audio cues for overtakes, pit stops, flag changes (separate from voice)
+- [ ] **Responsive mobile layout** — adaptive layout for tablet / phone screens
+- [ ] **Keyboard shortcut cheatsheet** — overlay showing all available shortcuts
+
+### Data & Analytics
+- [ ] **Driver head-to-head** — pick any 2 drivers for side-by-side telemetry overlay (speed, throttle, brake)
+- [ ] **Race win probability** — AI-powered real-time win % bar for top drivers, updating each lap
+- [ ] **Sector mini-times** — color-coded mini-sectors on track map (purple = PB, green = session best)
+- [ ] **Tire degradation curve** — visual tire wear model showing predicted cliff lap per driver
+- [ ] **Lap time distribution** — violin / box plots per driver showing consistency
+
+### Engagement
+- [ ] **Battle tracker panel** — dedicated live view of wheel-to-wheel fights (< 1s gap pairs)
+- [ ] **Race calendar** — upcoming race countdown with session times in user's timezone
+- [ ] **Team-branded themes** — Ferrari red, Mercedes teal, McLaren papaya, etc.
+- [ ] **Achievement badges** — "Watched 10 races", "Caught a fastest lap live", etc.
+
+### Infrastructure
+- [ ] **CI/CD pipeline** — GitHub Actions for lint, type-check, build on PR
+- [ ] **E2E tests** — Playwright tests for critical flows (load session, simulate, tour)
+- [ ] **API caching layer** — Redis or in-memory TTL cache for expensive endpoints
+- [ ] **Rate limiting** — per-IP rate limiting on public-facing API
+
+---
+
+## Deployment
+
+### Architecture
+
+```
+ ┌──────────────┐       ┌──────────────────┐
+ │   Vercel     │       │    Railway        │
+ │  (Frontend)  │──────▶│   (Backend API)   │
+ │  Next.js SSR │  API  │  FastAPI + SQLite │
+ │  $0 / month  │       │  ~$5 / month      │
+ └──────────────┘       └──────────────────┘
+```
+
+### Frontend — Vercel (Free)
+
+1. Push repo to GitHub
+2. Import project on [vercel.com](https://vercel.com)
+3. Set **Root Directory** to `apps/web`
+4. Set **Framework Preset** to `Next.js`
+5. Add environment variables:
+   ```
+   NEXT_PUBLIC_API_URL=https://your-api.up.railway.app
+   NEXT_PUBLIC_WS_URL=wss://your-api.up.railway.app/ws/race
+   ```
+6. Deploy — Vercel auto-detects `output: "standalone"`
+
+### Backend — Railway ($5/mo hobby plan)
+
+1. Create a new project on [railway.app](https://railway.app)
+2. Connect your GitHub repo
+3. Set **Root Directory** to `apps/api`
+4. Railway will auto-detect the `Dockerfile` (see below)
+5. Add environment variables:
+   ```
+   FRONTEND_URL=https://your-app.vercel.app
+   ANTHROPIC_API_KEY=sk-ant-...
+   ELEVENLABS_API_KEY=...
+   RAPIDAPI_KEY=...          # optional
+   LIVE_MODE_ENABLED=false
+   ```
+6. Railway auto-assigns a public URL
+
+### Cost Summary
+
+| Service  | Tier   | Cost      | Notes                              |
+|----------|--------|-----------|------------------------------------|
+| Vercel   | Hobby  | **$0**    | 100GB bandwidth, serverless        |
+| Railway  | Hobby  | **~$5**   | 8GB RAM, 8 vCPU, $5 credit/month  |
+| **Total**|        | **~$5/mo**| Scales to ~$10-15 under heavy use  |
+
+### Alternative: Render (Free tier)
+
+If you want $0/mo total, Render has a free web service tier. Trade-off: cold starts (~30s spin-up after 15min inactivity).
 
 ---
 
