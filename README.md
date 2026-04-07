@@ -992,7 +992,10 @@ page.tsx
 - [ ] **Achievement badges** — "Watched 10 races", "Caught a fastest lap live", etc.
 
 ### Infrastructure
-- [ ] **CI/CD pipeline** — GitHub Actions for lint, type-check, build on PR
+- [x] **CI/CD pipeline** — GitHub Actions for lint, type-check, build on PR
+- [x] **Swagger API docs** — Auto-generated at `/docs` (Swagger UI) and `/redoc`, grouped by tags
+- [x] **Copilot AI code review** — Automated PR review via `github/copilot-review-action`
+- [x] **Deploy CLI scripts** — `npm run deploy:web` (Vercel) / `npm run deploy:api` (Railway)
 - [ ] **E2E tests** — Playwright tests for critical flows (load session, simulate, tour)
 - [ ] **API caching layer** — Redis or in-memory TTL cache for expensive endpoints
 - [ ] **Rate limiting** — per-IP rate limiting on public-facing API
@@ -1052,6 +1055,45 @@ page.tsx
 ### Alternative: Render (Free tier)
 
 If you want $0/mo total, Render has a free web service tier. Trade-off: cold starts (~30s spin-up after 15min inactivity).
+
+### API Documentation (Swagger)
+
+FastAPI auto-generates interactive API docs:
+
+| URL | Format | Description |
+|---|---|---|
+| `/docs` | Swagger UI | Interactive API explorer with "Try it out" |
+| `/redoc` | ReDoc | Clean read-only documentation |
+| `/openapi.json` | OpenAPI 3.0 | Raw JSON schema for code generation |
+
+All 56 endpoints are grouped into 10 tags: Session, Race Data, AI & Insights, Strategy & Simulation, Media, Database, Mode & Config, Live Pulse, OpenF1, WebSocket.
+
+### CLI Deploy Commands
+
+Install CLIs globally (one-time):
+```bash
+npm i -g vercel @railway/cli
+vercel login
+railway login
+```
+
+Then deploy from the project root:
+```bash
+# Deploy everything
+npm run deploy
+
+# Or individually
+npm run deploy:web           # Vercel production
+npm run deploy:web:preview   # Vercel preview URL
+npm run deploy:api           # Railway
+```
+
+### CI/CD Pipeline
+
+Push or open a PR to `main` → GitHub Actions automatically runs:
+- **Frontend**: `npm ci` → `lint` → `tsc --noEmit` → `next build`
+- **Backend**: `pip install` → syntax check → import validation
+- **Copilot Review**: AI-powered code review comments on every PR
 
 ---
 

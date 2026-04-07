@@ -1,0 +1,20 @@
+name: Copilot Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  copilot-review:
+    name: AI Code Review
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: github/copilot-review-action@v1
+        with:
+          model: gpt-4o

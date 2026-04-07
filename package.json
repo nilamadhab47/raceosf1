@@ -9,7 +9,14 @@
     "dev:web": "cd apps/web && npm run dev",
     "dev:api": "cd apps/api && python -m uvicorn main:app --reload --port 8000",
     "dev": "concurrently \"npm run dev:api\" \"npm run dev:web\"",
-    "build:web": "cd apps/web && npm run build"
+    "build:web": "cd apps/web && npm run build",
+    "lint:web": "cd apps/web && npm run lint",
+    "typecheck:web": "cd apps/web && npx tsc --noEmit",
+    "deploy:web": "cd apps/web && npx vercel --prod",
+    "deploy:web:preview": "cd apps/web && npx vercel",
+    "deploy:api": "cd apps/api && npx @railway/cli up --service api",
+    "deploy": "npm run deploy:api && npm run deploy:web",
+    "docs": "echo 'API docs at http://localhost:8000/docs (Swagger) or /redoc'"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"

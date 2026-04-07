@@ -37,6 +37,20 @@ app = FastAPI(
     title="F1 Intelligence Studio API",
     version="2.0.0",
     description="AI-powered F1 race insights backend with real-time WebSocket pipeline",
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_tags=[
+        {"name": "Session", "description": "Session loading and management"},
+        {"name": "Race Data", "description": "Laps, telemetry, leaderboard, positions, weather"},
+        {"name": "AI & Insights", "description": "Rule-based insights, Claude AI chat"},
+        {"name": "Strategy & Simulation", "description": "Pit strategy simulator, race replay"},
+        {"name": "Media", "description": "Voice synthesis, YouTube highlights"},
+        {"name": "Database", "description": "Stored session CRUD (SQLite)"},
+        {"name": "Mode & Config", "description": "Data mode toggle, rate limits, health"},
+        {"name": "Live Pulse", "description": "RapidAPI real-time F1 data"},
+        {"name": "OpenF1", "description": "Free OpenF1 API endpoints"},
+        {"name": "WebSocket", "description": "Real-time race data stream"},
+    ],
 )
 
 app.add_middleware(
@@ -80,14 +94,14 @@ def _get_session():
 
 # ─── Session Endpoints ───────────────────────────────────────────────
 
-@app.get("/api/session")
+@app.get("/api/session", tags=["Session"])
 def api_session_info():
     """Get current session info."""
     session = _get_session()
     return get_session_info(session)
 
 
-@app.post("/api/session/load")
+@app.post("/api/session/load", tags=["Session"])
 def api_load_session(
     year: int = Query(default=2024),
     gp: str = Query(default="Bahrain"),
@@ -107,7 +121,7 @@ def api_load_session(
 
 # ─── Driver Endpoints ────────────────────────────────────────────────
 
-@app.get("/api/drivers")
+@app.get("/api/drivers", tags=["Race Data"])
 def api_drivers():
     """Get list of drivers."""
     session = _get_session()
@@ -116,7 +130,7 @@ def api_drivers():
 
 # ─── Lap Endpoints ───────────────────────────────────────────────────
 
-@app.get("/api/laps")
+@app.get("/api/laps", tags=["Race Data"])
 def api_laps(driver: Optional[str] = Query(default=None)):
     """Get lap data, optionally filtered by driver abbreviation."""
     session = _get_session()
@@ -125,7 +139,7 @@ def api_laps(driver: Optional[str] = Query(default=None)):
 
 # ─── Telemetry Endpoints ─────────────────────────────────────────────
 
-@app.get("/api/telemetry")
+@app.get("/api/telemetry", tags=["Race Data"])
 def api_telemetry(
     driver: str = Query(..., description="Driver abbreviation (e.g., VER)"),
     lap: int = Query(..., description="Lap number"),
@@ -140,7 +154,7 @@ def api_telemetry(
 
 # ─── Leaderboard Endpoint ────────────────────────────────────────────
 
-@app.get("/api/leaderboard")
+@app.get("/api/leaderboard", tags=["Race Data"])
 def api_leaderboard(lap: Optional[int] = Query(default=None)):
     """Get race leaderboard at a given lap."""
     session = _get_session()
@@ -149,7 +163,7 @@ def api_leaderboard(lap: Optional[int] = Query(default=None)):
 
 # ─── Track Map Endpoints ─────────────────────────────────────────────
 
-@app.get("/api/track-map")
+@app.get("/api/track-map", tags=["Race Data"])
 def api_track_map():
     """Get circuit outline coordinates for track map rendering."""
     session = _get_session()
@@ -159,7 +173,7 @@ def api_track_map():
     return result
 
 
-@app.get("/api/driver-positions")
+@app.get("/api/driver-positions", tags=["Race Data"])
 def api_driver_positions(lap: int = Query(..., description="Lap number")):
     """Get driver X/Y positions at a specific lap."""
     session = _get_session()
@@ -168,7 +182,7 @@ def api_driver_positions(lap: int = Query(..., description="Lap number")):
 
 # ─── Race Control Endpoint ───────────────────────────────────────────
 
-@app.get("/api/race-control")
+@app.get("/api/race-control", tags=["Race Data"])
 def api_race_control(lap: Optional[int] = Query(default=None)):
     """Get race control messages and current flag mode at a given lap."""
     session = _get_session()
@@ -179,7 +193,7 @@ def api_race_control(lap: Optional[int] = Query(default=None)):
 
 # ─── Stints Endpoint ─────────────────────────────────────────────────
 
-@app.get("/api/stints")
+@app.get("/api/stints", tags=["Race Data"])
 def api_stints():
     """Get tyre stint summaries for all drivers."""
     session = _get_session()
@@ -188,7 +202,7 @@ def api_stints():
 
 # ─── Gap Evolution Endpoint ──────────────────────────────────────────
 
-@app.get("/api/gap-evolution")
+@app.get("/api/gap-evolution", tags=["Race Data"])
 def api_gap_evolution(top_n: int = Query(default=5, ge=2, le=10)):
     """Get gap-to-leader evolution for top N drivers across all laps."""
     session = _get_session()
@@ -197,7 +211,7 @@ def api_gap_evolution(top_n: int = Query(default=5, ge=2, le=10)):
 
 # ─── Weather Endpoint ────────────────────────────────────────────────
 
-@app.get("/api/weather")
+@app.get("/api/weather", tags=["Race Data"])
 def api_weather():
     """Get weather data for the session."""
     session = _get_session()
@@ -206,7 +220,7 @@ def api_weather():
 
 # ─── Insights Endpoint ───────────────────────────────────────────────
 
-@app.get("/api/insights")
+@app.get("/api/insights", tags=["AI & Insights"])
 def api_insights(lap: Optional[int] = Query(default=None)):
     """Get AI-generated insights for the race at a given lap."""
     session = _get_session()
@@ -215,7 +229,7 @@ def api_insights(lap: Optional[int] = Query(default=None)):
 
 # ─── AI-Enhanced Insights & Chat ─────────────────────────────────────
 
-@app.get("/api/ai/insights")
+@app.get("/api/ai/insights", tags=["AI & Insights"])
 async def api_ai_insights(lap: Optional[int] = Query(default=None)):
     """Get Claude-enhanced insights (rule-based + AI analysis)."""
     session = _get_session()
@@ -228,7 +242,7 @@ class ChatRequest(BaseModel):
     history: Optional[list[dict]] = None
 
 
-@app.post("/api/ai/chat")
+@app.post("/api/ai/chat", tags=["AI & Insights"])
 async def api_ai_chat(req: ChatRequest, lap: Optional[int] = Query(default=None)):
     """Interactive AI chat about the current race."""
     session = _get_session()
@@ -240,14 +254,14 @@ async def api_ai_chat(req: ChatRequest, lap: Optional[int] = Query(default=None)
 
 from youtube_search import search_highlights, get_stream_url
 
-@app.get("/api/highlights/search")
+@app.get("/api/highlights/search", tags=["Media"])
 async def api_highlights_search(year: int = Query(...), gp: str = Query(...)):
     """Search YouTube for F1 race highlights (yt-dlp → Anthropic fallback)."""
     results = await search_highlights(year, gp)
     return {"results": results}
 
 
-@app.get("/api/highlights/stream")
+@app.get("/api/highlights/stream", tags=["Media"])
 async def api_highlights_stream(v: str = Query(..., min_length=11, max_length=11)):
     """Proxy a YouTube video stream. Returns a redirect to the direct CDN URL."""
     import re
@@ -273,7 +287,7 @@ class StrategyRequest(BaseModel):
     compound: str = "MEDIUM"
 
 
-@app.post("/api/simulate-strategy")
+@app.post("/api/simulate-strategy", tags=["Strategy & Simulation"])
 def api_simulate_strategy(req: StrategyRequest):
     """Simulate a pit stop strategy."""
     session = _get_session()
@@ -285,13 +299,13 @@ def api_simulate_strategy(req: StrategyRequest):
 
 # ─── Live Simulation ─────────────────────────────────────────────────
 
-@app.get("/api/live")
+@app.get("/api/live", tags=["Strategy & Simulation"])
 def api_live():
     """Get current simulated race state."""
     return race_simulator.get_state()
 
 
-@app.post("/api/live/start")
+@app.post("/api/live/start", tags=["Strategy & Simulation"])
 async def api_live_start(speed: float = Query(default=3.0)):
     """Start race simulation and begin WebSocket broadcast."""
     session = _get_session()
@@ -301,7 +315,7 @@ async def api_live_start(speed: float = Query(default=3.0)):
     return race_simulator.get_state()
 
 
-@app.post("/api/live/stop")
+@app.post("/api/live/stop", tags=["Strategy & Simulation"])
 async def api_live_stop():
     """Stop race simulation and broadcast."""
     race_simulator.stop()
@@ -309,7 +323,7 @@ async def api_live_stop():
     return race_simulator.get_state()
 
 
-@app.post("/api/live/reset")
+@app.post("/api/live/reset", tags=["Strategy & Simulation"])
 def api_live_reset():
     """Reset race simulation."""
     race_simulator.reset()
@@ -322,7 +336,7 @@ class VoiceRequest(BaseModel):
     text: str
 
 
-@app.post("/api/voice/synthesize")
+@app.post("/api/voice/synthesize", tags=["Media"])
 async def api_voice_synthesize(req: VoiceRequest):
     """Convert text to speech via ElevenLabs."""
     audio = await synthesize_speech(req.text)
@@ -336,7 +350,7 @@ async def api_voice_synthesize(req: VoiceRequest):
 
 # ─── Available Sessions ──────────────────────────────────────────────
 
-@app.get("/api/available-sessions")
+@app.get("/api/available-sessions", tags=["Session"])
 def api_available_sessions():
     """Return a curated list of interesting sessions to explore."""
     return [
@@ -385,14 +399,14 @@ def api_available_sessions():
     ]
 
 
-@app.get("/api/health")
+@app.get("/api/health", tags=["Mode & Config"])
 def health():
     return {"status": "ok"}
 
 
 # ─── Database-backed Endpoints ────────────────────────────────────────
 
-@app.post("/api/db/sync-session")
+@app.post("/api/db/sync-session", tags=["Database"])
 async def api_db_sync_session(
     year: int = Query(default=2026),
     gp: str = Query(..., description="Grand Prix name e.g. 'Bahrain'"),
@@ -404,7 +418,7 @@ async def api_db_sync_session(
     return {"session_id": session_id, "status": "synced"}
 
 
-@app.post("/api/db/sync-season")
+@app.post("/api/db/sync-season", tags=["Database"])
 async def api_db_sync_season(year: int = Query(default=2026)):
     """Sync all available race sessions for an entire season (with timeout)."""
     import asyncio
@@ -415,7 +429,7 @@ async def api_db_sync_season(year: int = Query(default=2026)):
         return {"year": year, "sessions_synced": 0, "status": "timeout", "message": "Sync taking too long — try syncing individual sessions"}
 
 
-@app.post("/api/db/sync-latest")
+@app.post("/api/db/sync-latest", tags=["Database"])
 async def api_db_sync_latest():
     """Sync the most recent session (with timeout)."""
     import asyncio
@@ -426,26 +440,26 @@ async def api_db_sync_latest():
         return {"session_id": None, "status": "timeout", "message": "Sync timed out"}
 
 
-@app.get("/api/db/sessions")
+@app.get("/api/db/sessions", tags=["Database"])
 async def api_db_sessions(year: Optional[int] = Query(default=None)):
     """Get all stored sessions from the database."""
     sessions = await db.get_all_sessions(year)
     return sessions
 
 
-@app.get("/api/db/session/{session_id}/drivers")
+@app.get("/api/db/session/{session_id}/drivers", tags=["Database"])
 async def api_db_drivers(session_id: int):
     """Get drivers for a stored session."""
     return await db.get_drivers_for_session(session_id)
 
 
-@app.get("/api/db/session/{session_id}/leaderboard")
+@app.get("/api/db/session/{session_id}/leaderboard", tags=["Database"])
 async def api_db_leaderboard(session_id: int, lap: int = Query(default=0)):
     """Get leaderboard at a specific lap from stored data."""
     return await db.get_leaderboard_at_lap(session_id, lap)
 
 
-@app.get("/api/db/session/{session_id}/laps")
+@app.get("/api/db/session/{session_id}/laps", tags=["Database"])
 async def api_db_laps(session_id: int, driver: Optional[str] = Query(default=None)):
     """Get lap times from stored data."""
     if driver:
@@ -453,31 +467,31 @@ async def api_db_laps(session_id: int, driver: Optional[str] = Query(default=Non
     return await db.get_all_laps(session_id)
 
 
-@app.get("/api/db/session/{session_id}/stints")
+@app.get("/api/db/session/{session_id}/stints", tags=["Database"])
 async def api_db_stints(session_id: int):
     """Get stints from stored data."""
     return await db.get_stints_for_session(session_id)
 
 
-@app.get("/api/db/session/{session_id}/race-control")
+@app.get("/api/db/session/{session_id}/race-control", tags=["Database"])
 async def api_db_race_control(session_id: int, lap: Optional[int] = Query(default=None)):
     """Get race control messages from stored data."""
     return await db.get_race_control_for_session(session_id, lap)
 
 
-@app.get("/api/db/session/{session_id}/weather")
+@app.get("/api/db/session/{session_id}/weather", tags=["Database"])
 async def api_db_weather(session_id: int):
     """Get weather data from stored data."""
     return await db.get_weather_for_session(session_id)
 
 
-@app.get("/api/db/session/{session_id}/pit-stops")
+@app.get("/api/db/session/{session_id}/pit-stops", tags=["Database"])
 async def api_db_pit_stops(session_id: int):
     """Get pit stops from stored data."""
     return await db.get_pit_stops_for_session(session_id)
 
 
-@app.get("/api/db/has-data")
+@app.get("/api/db/has-data", tags=["Database"])
 async def api_db_has_data(
     year: int = Query(...), gp: str = Query(...),
 ):
@@ -488,13 +502,13 @@ async def api_db_has_data(
 
 # ─── Mode & Rate Limit ───────────────────────────────────────────────
 
-@app.get("/api/mode")
+@app.get("/api/mode", tags=["Mode & Config"])
 def api_get_mode():
     """Get current data mode."""
     return {"mode": _mode, "live_available": live_pulse.is_enabled()}
 
 
-@app.post("/api/mode")
+@app.post("/api/mode", tags=["Mode & Config"])
 def api_set_mode(mode: str = Query(..., pattern="^(simulation|live)$")):
     """Switch between simulation and live data mode."""
     global _mode
@@ -507,7 +521,7 @@ def api_set_mode(mode: str = Query(..., pattern="^(simulation|live)$")):
     return {"mode": _mode}
 
 
-@app.get("/api/rate-limit")
+@app.get("/api/rate-limit", tags=["Mode & Config"])
 def api_rate_limit():
     """Current API rate limit status."""
     return rate_limiter.status
@@ -515,7 +529,7 @@ def api_rate_limit():
 
 # ─── Live Pulse Data ─────────────────────────────────────────────────
 
-@app.get("/api/live-pulse/timing")
+@app.get("/api/live-pulse/timing", tags=["Live Pulse"])
 async def api_live_timing():
     """Fetch real-time timing data from F1 Live Pulse API."""
     data = await live_pulse.get_live_timing()
@@ -524,7 +538,7 @@ async def api_live_timing():
     return data
 
 
-@app.get("/api/live-pulse/positions")
+@app.get("/api/live-pulse/positions", tags=["Live Pulse"])
 async def api_live_positions():
     """Fetch real-time driver positions from F1 Live Pulse API."""
     data = await live_pulse.get_live_positions()
@@ -533,7 +547,7 @@ async def api_live_positions():
     return data
 
 
-@app.get("/api/live-pulse/race-control")
+@app.get("/api/live-pulse/race-control", tags=["Live Pulse"])
 async def api_live_race_control():
     """Fetch race control messages from F1 Live Pulse API."""
     data = await live_pulse.get_race_control_messages()
@@ -542,7 +556,7 @@ async def api_live_race_control():
     return data
 
 
-@app.get("/api/live-pulse/weather")
+@app.get("/api/live-pulse/weather", tags=["Live Pulse"])
 async def api_live_weather():
     """Fetch live weather data from F1 Live Pulse API."""
     data = await live_pulse.get_weather_data()
@@ -551,7 +565,7 @@ async def api_live_weather():
     return data
 
 
-@app.get("/api/live-pulse/pit-stops")
+@app.get("/api/live-pulse/pit-stops", tags=["Live Pulse"])
 async def api_live_pit_stops():
     """Fetch pit stop events from F1 Live Pulse API."""
     data = await live_pulse.get_pit_stops()
@@ -560,7 +574,7 @@ async def api_live_pit_stops():
     return data
 
 
-@app.get("/api/live-pulse/team-radio")
+@app.get("/api/live-pulse/team-radio", tags=["Live Pulse"])
 async def api_live_team_radio():
     """Fetch team radio messages from F1 Live Pulse API."""
     data = await live_pulse.get_team_radio()
@@ -571,7 +585,7 @@ async def api_live_team_radio():
 
 # ─── OpenF1 Free API Endpoints ────────────────────────────────────────
 
-@app.get("/api/openf1/sessions")
+@app.get("/api/openf1/sessions", tags=["OpenF1"])
 async def api_openf1_sessions(year: int = Query(default=2025)):
     """Get available sessions from OpenF1 (free, no API key needed)."""
     try:
@@ -580,7 +594,7 @@ async def api_openf1_sessions(year: int = Query(default=2025)):
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/latest-session")
+@app.get("/api/openf1/latest-session", tags=["OpenF1"])
 async def api_openf1_latest():
     """Get the most recent F1 session from OpenF1."""
     try:
@@ -589,7 +603,7 @@ async def api_openf1_latest():
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/drivers")
+@app.get("/api/openf1/drivers", tags=["OpenF1"])
 async def api_openf1_drivers(session_key: str = Query(default="latest")):
     """Get drivers from OpenF1."""
     try:
@@ -599,7 +613,7 @@ async def api_openf1_drivers(session_key: str = Query(default="latest")):
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/positions")
+@app.get("/api/openf1/positions", tags=["OpenF1"])
 async def api_openf1_positions(session_key: str = Query(default="latest")):
     """Get position rankings from OpenF1."""
     try:
@@ -609,7 +623,7 @@ async def api_openf1_positions(session_key: str = Query(default="latest")):
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/laps")
+@app.get("/api/openf1/laps", tags=["OpenF1"])
 async def api_openf1_laps(
     session_key: str = Query(default="latest"),
     driver_number: Optional[int] = Query(default=None),
@@ -622,7 +636,7 @@ async def api_openf1_laps(
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/race-control")
+@app.get("/api/openf1/race-control", tags=["OpenF1"])
 async def api_openf1_race_control(session_key: str = Query(default="latest")):
     """Get race control messages from OpenF1."""
     try:
@@ -632,7 +646,7 @@ async def api_openf1_race_control(session_key: str = Query(default="latest")):
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/weather")
+@app.get("/api/openf1/weather", tags=["OpenF1"])
 async def api_openf1_weather(session_key: str = Query(default="latest")):
     """Get weather data from OpenF1."""
     try:
@@ -642,7 +656,7 @@ async def api_openf1_weather(session_key: str = Query(default="latest")):
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/intervals")
+@app.get("/api/openf1/intervals", tags=["OpenF1"])
 async def api_openf1_intervals(session_key: str = Query(default="latest")):
     """Get interval/gap data from OpenF1."""
     try:
@@ -652,7 +666,7 @@ async def api_openf1_intervals(session_key: str = Query(default="latest")):
         raise HTTPException(status_code=503, detail=f"OpenF1 API error: {e}")
 
 
-@app.get("/api/openf1/team-radio")
+@app.get("/api/openf1/team-radio", tags=["OpenF1"])
 async def api_openf1_team_radio(
     session_key: str = Query(default="latest"),
     driver_number: Optional[int] = Query(default=None),
