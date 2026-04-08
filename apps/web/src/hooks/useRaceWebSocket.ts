@@ -3,7 +3,15 @@
 import { useEffect, useRef, useCallback } from "react";
 import { useF1Store } from "@/store/f1-store";
 
-const WS_URL = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws/race";
+function getWsUrl() {
+  if (process.env.NEXT_PUBLIC_WS_URL) return process.env.NEXT_PUBLIC_WS_URL;
+  if (typeof window !== "undefined" && window.location.protocol === "https:") {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "";
+    if (apiUrl) return apiUrl.replace(/^https?:\/\//, "wss://") + "/ws/race";
+  }
+  return "ws://localhost:8000/ws/race";
+}
+
 const RECONNECT_DELAY = 2000;
 const MAX_RECONNECT_DELAY = 30000;
 
@@ -26,7 +34,7 @@ export function useRaceWebSocket() {
     if (!mountedRef.current) return;
     if (wsRef.current?.readyState === WebSocket.OPEN) return;
 
-    const ws = new WebSocket(WS_URL);
+    const ws = new WebSocket(getWsUrl());
     wsRef.current = ws;
 
     ws.onopen = () => {
