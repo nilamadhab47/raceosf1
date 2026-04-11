@@ -5,6 +5,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import Response
 from pydantic import BaseModel
 from typing import Optional
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from config import settings
 from f1_data import (
@@ -13,6 +15,8 @@ from f1_data import (
     get_drivers,
     get_laps,
     get_telemetry,
+    has_telemetry,
+    get_loading_status,
     get_race_leaderboard,
     get_weather,
     get_track_map,
@@ -88,6 +92,9 @@ _current_gp = "Bahrain"
 _current_session_type = "R"
 _mode = "simulation"  # "simulation" | "live"
 
+# Thread pool for CPU-bound FastF1 loading (prevents blocking the event loop)
+_executor = ThreadPoolExecutor(max_workers=2)
+
 
 def _get_session():
     global _current_session
@@ -96,31 +103,52 @@ def _get_session():
     return _current_session
 
 
+async def _get_session_async():
+    """Load session in a thread pool so the event loop stays responsive."""
+    global _current_session
+    if _current_session is None:
+        loop = asyncio.get_event_loop()
+        _current_session = await loop.run_in_executor(
+            _executor,
+            load_session, _current_year, _current_gp, _current_session_type,
+        )
+    return _current_session
+
+
 # ─── Session Endpoints ───────────────────────────────────────────────
 
 @app.get("/api/session", tags=["Session"])
-def api_session_info():
+async def api_session_info():
     """Get current session info."""
-    session = _get_session()
+    session = await _get_session_async()
     return get_session_info(session)
 
 
 @app.post("/api/session/load", tags=["Session"])
-def api_load_session(
+async def api_load_session(
     year: int = Query(default=2024),
     gp: str = Query(default="Bahrain"),
     session_type: str = Query(default="R"),
 ):
-    """Load a different session."""
+    """Load a different session (fast: skips telemetry, loads it in background)."""
     global _current_session, _current_year, _current_gp, _current_session_type
     try:
-        _current_session = load_session(year, gp, session_type)
+        loop = asyncio.get_event_loop()
+        _current_session = await loop.run_in_executor(
+            _executor, load_session, year, gp, session_type,
+        )
         _current_year = year
         _current_gp = gp
         _current_session_type = session_type
         return get_session_info(_current_session)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+
+@app.get("/api/session/status", tags=["Session"])
+def api_session_status():
+    """Check what data has finished loading for the current session."""
+    return get_loading_status(_current_year, _current_gp, _current_session_type)
 
 
 # ─── Driver Endpoints ────────────────────────────────────────────────
@@ -148,7 +176,21 @@ def api_telemetry(
     driver: str = Query(..., description="Driver abbreviation (e.g., VER)"),
     lap: int = Query(..., description="Lap number"),
 ):
-    """Get telemetry data for a specific driver and lap."""
+    """Get telemetry data for a specific driver and lap.
+    
+    Returns 202 if telemetry is still loading in the background.
+    """
+    if not has_telemetry(_current_year, _current_gp, _current_session_type):
+        from fastapi.responses import JSONResponse
+        status = get_loading_status(_current_year, _current_gp, _current_session_type)
+        return JSONResponse(
+            status_code=202,
+            content={
+                "status": "loading",
+                "message": "Telemetry data is loading in the background. Try again shortly.",
+                **status,
+            },
+        )
     session = _get_session()
     result = get_telemetry(session, driver, lap)
     if "error" in result:
@@ -169,7 +211,16 @@ def api_leaderboard(lap: Optional[int] = Query(default=None)):
 
 @app.get("/api/track-map", tags=["Race Data"])
 def api_track_map():
-    """Get circuit outline coordinates for track map rendering."""
+    """Get circuit outline coordinates for track map rendering.
+    
+    Requires telemetry to be loaded (Phase 2). Returns 202 while loading.
+    """
+    if not has_telemetry(_current_year, _current_gp, _current_session_type):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=202,
+            content={"status": "loading", "message": "Track data loading (needs telemetry)."},
+        )
     session = _get_session()
     result = get_track_map(session)
     if "error" in result:
@@ -179,7 +230,16 @@ def api_track_map():
 
 @app.get("/api/driver-positions", tags=["Race Data"])
 def api_driver_positions(lap: int = Query(..., description="Lap number")):
-    """Get driver X/Y positions at a specific lap."""
+    """Get driver X/Y positions at a specific lap.
+    
+    Requires telemetry to be loaded (Phase 2). Returns 202 while loading.
+    """
+    if not has_telemetry(_current_year, _current_gp, _current_session_type):
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=202,
+            content={"status": "loading", "message": "Position data loading (needs telemetry)."},
+        )
     session = _get_session()
     return get_driver_positions_at_lap(session, lap)
 
@@ -404,6 +464,7 @@ def api_available_sessions():
 
 
 @app.get("/api/health", tags=["Mode & Config"])
+@app.get("/health", include_in_schema=False)
 def health():
     return {"status": "ok"}
 

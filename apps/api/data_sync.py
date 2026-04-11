@@ -348,7 +348,10 @@ async def sync_season(year: int):
 
 
 async def sync_latest():
-    """Sync the most recent session from OpenF1."""
+    """Sync the most recent session from OpenF1.
+    
+    Skips future sessions (no race data available yet).
+    """
     try:
         latest = await openf1_client.get_latest_session()
         if latest:
@@ -357,9 +360,13 @@ async def sync_latest():
             date_str = latest.get("date_start", "")
             if date_str:
                 try:
-                    from datetime import datetime
+                    from datetime import datetime, timezone
                     dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
                     year = dt.year
+                    # Skip if the session hasn't started yet — no data to fetch
+                    if dt > datetime.now(timezone.utc):
+                        logger.info("Skipping sync for future session: %s %d (starts %s)", country, year, date_str)
+                        return None
                 except Exception:
                     pass
             if year and country:

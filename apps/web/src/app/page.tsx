@@ -20,6 +20,8 @@ import { PodiumCelebration } from "@/components/shared/PodiumCelebration";
 import { LabEntry } from "@/components/shared/LabEntry";
 import { RaceOSTour } from "@/components/shared/RaceOSTour";
 import { SettingsModal } from "@/components/shared/SettingsModal";
+import { MobileGate } from "@/components/shared/MobileGate";
+import { MobileDashboard } from "@/components/mobile/MobileDashboard";
 import { useOnboardingStore } from "@/store/onboarding-store";
 
 /* ─── Main Page — F1 World Monitor ───────────────────────────────── */
@@ -29,6 +31,7 @@ export default function Home() {
   const hasEntered = useLabEntryStore((s) => s.hasEntered);
   const { hasCompletedTour, startTour } = useOnboardingStore();
   const [mounted, setMounted] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
   useRaceWebSocket();
 
   useEffect(() => {
@@ -40,6 +43,15 @@ export default function Home() {
 
   // Signal that the client has mounted (Zustand persist has rehydrated by now)
   useEffect(() => setMounted(true), []);
+
+  // Detect mobile viewport
+  useEffect(() => {
+    const mql = window.matchMedia("(max-width: 1024px)");
+    setIsMobile(mql.matches);
+    const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
+    mql.addEventListener("change", handler);
+    return () => mql.removeEventListener("change", handler);
+  }, []);
 
   // Restore clip from URL parameters
   useEffect(() => {
@@ -63,6 +75,12 @@ export default function Home() {
   return (
     <ToastProvider>
       {showOverlay && <LabEntry />}
+
+      {/* ── Mobile layout ── */}
+      {mounted && isMobile ? (
+        <MobileDashboard />
+      ) : (
+        /* ── Desktop layout ── */
         <div className="h-screen flex flex-col overflow-hidden bg-f1-bg" style={{ background: "radial-gradient(ellipse at 50% 0%, rgba(225,6,0,0.08) 0%, #000000 55%)" }}>
         <TopBar />
         <FastestLapCelebration />
@@ -102,6 +120,7 @@ export default function Home() {
         <RaceOSTour />
         <SettingsModal />
       </div>
+      )}
     </ToastProvider>
   );
 }

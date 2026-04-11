@@ -66,6 +66,9 @@ async def _throttled_get(path: str, params: dict | None = None) -> list | dict:
             else:
                 logger.error("OpenF1 429 on %s — exhausted retries", path)
                 r.raise_for_status()
+        # 404 means no data for this resource (e.g. future session)
+        if r.status_code == 404:
+            return []
         r.raise_for_status()
         return r.json()
 

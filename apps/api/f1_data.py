@@ -1,17 +1,34 @@
-"""FastF1 data service — loads and caches session data."""
+"""FastF1 data service — loads and caches session data.
+
+Two-phase loading strategy:
+  Phase 1 (fast): Load laps, weather, messages — NO telemetry (~2-3 MB, <10s)
+  Phase 2 (background): Load telemetry data (~50 MB, 30-120s)
+
+This means the dashboard can render immediately (leaderboard, stints, positions,
+weather, all panels) while telemetry loads silently in the background.
+"""
 
 import fastf1
 import pandas as pd
 import numpy as np
+import threading
+import logging
 from typing import Optional
 
 from config import settings
+
+logger = logging.getLogger(__name__)
 
 # Enable FastF1 cache
 fastf1.Cache.enable_cache(settings.FASTF1_CACHE_DIR)
 
 # In-memory cache for loaded sessions
 _session_cache: dict[str, fastf1.core.Session] = {}
+
+# Track which sessions have telemetry loaded
+_telemetry_loaded: set[str] = set()
+_telemetry_loading: set[str] = set()  # currently loading in background
+_telemetry_lock = threading.Lock()
 
 
 def _cache_key(year: int, gp: str | int, session_type: str) -> str:
@@ -23,15 +40,70 @@ def load_session(
     gp: str | int = "Bahrain",
     session_type: str = "R",
 ) -> fastf1.core.Session:
-    """Load a FastF1 session with caching."""
+    """Load a FastF1 session with two-phase loading.
+    
+    Phase 1: Loads laps, weather, messages (fast, ~2-3 MB).
+    Phase 2: Telemetry loaded in background thread (~50 MB).
+    """
     key = _cache_key(year, gp, session_type)
     if key in _session_cache:
+        # If we have the session but not telemetry, ensure background load is kicked off
+        _ensure_telemetry_loading(key, year, gp, session_type)
         return _session_cache[key]
 
+    # Phase 1: Fast load — everything except telemetry
+    logger.info("Phase 1: Loading %d %s (no telemetry)...", year, gp)
     session = fastf1.get_session(year, gp, session_type)
-    session.load()
+    session.load(telemetry=False)
     _session_cache[key] = session
+    logger.info("Phase 1 complete: %d %s ready", year, gp)
+
+    # Phase 2: Kick off background telemetry load
+    _ensure_telemetry_loading(key, year, gp, session_type)
+
     return session
+
+
+def _ensure_telemetry_loading(key: str, year: int, gp: str | int, session_type: str):
+    """Start background telemetry load if not already loaded/loading."""
+    with _telemetry_lock:
+        if key in _telemetry_loaded or key in _telemetry_loading:
+            return
+        _telemetry_loading.add(key)
+
+    def _bg_load():
+        try:
+            logger.info("Phase 2: Loading telemetry for %d %s in background...", year, gp)
+            session = fastf1.get_session(year, gp, session_type)
+            session.load(telemetry=True)
+            with _telemetry_lock:
+                _session_cache[key] = session
+                _telemetry_loaded.add(key)
+                _telemetry_loading.discard(key)
+            logger.info("Phase 2 complete: telemetry for %d %s ready", year, gp)
+        except Exception as e:
+            logger.warning("Phase 2 telemetry load failed for %d %s: %s", year, gp, e)
+            with _telemetry_lock:
+                _telemetry_loading.discard(key)
+
+    thread = threading.Thread(target=_bg_load, daemon=True)
+    thread.start()
+
+
+def has_telemetry(year: int = 2024, gp: str | int = "Bahrain", session_type: str = "R") -> bool:
+    """Check if telemetry data has finished loading for a session."""
+    key = _cache_key(year, gp, session_type)
+    return key in _telemetry_loaded
+
+
+def get_loading_status(year: int = 2024, gp: str | int = "Bahrain", session_type: str = "R") -> dict:
+    """Get the loading status of a session."""
+    key = _cache_key(year, gp, session_type)
+    return {
+        "session_loaded": key in _session_cache,
+        "telemetry_loaded": key in _telemetry_loaded,
+        "telemetry_loading": key in _telemetry_loading,
+    }
 
 
 def get_session_info(session: fastf1.core.Session) -> dict:

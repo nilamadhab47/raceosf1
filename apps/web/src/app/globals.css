@@ -265,3 +265,44 @@ body {
     color: var(--foreground);
   }
 }
+
+/* ─── Mobile-specific styles ─── */
+
+/* Smooth momentum scrolling for mobile panels */
+.mobile-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  scroll-behavior: smooth;
+}
+
+/* Prevent text selection bounce on touch */
+@media (max-width: 1024px) {
+  body {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+    overscroll-behavior: none;
+  }
+
+  /* Smaller scrollbars on mobile */
+  ::-webkit-scrollbar {
+    width: 2px;
+    height: 2px;
+  }
+
+  /* Tighter glass panel padding on mobile */
+  .glass-panel,
+  .glass-panel-hero,
+  .glass-panel-raised {
+    border-radius: 8px;
+  }
+
+  /* Disable drag handles on mobile — they're not needed */
+  .drag-handle {
+    cursor: default !important;
+  }
+
+  /* react-grid-layout — disable on mobile (hidden by layout switch) */
+  .react-grid-item > .react-resizable-handle {
+    display: none !important;
+  }
+}
