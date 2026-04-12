@@ -192,6 +192,8 @@ export const useF1Store = create<F1State>((set, get) => ({
   fetchTelemetry: async (driver, lap, slot) => {
     try {
       const data = await api.getTelemetry(driver, lap);
+      // Validate response has actual telemetry data (not a 202 loading stub)
+      if (!data?.distance) return;
       if (slot === 1) set({ telemetry1: data });
       else set({ telemetry2: data });
     } catch (e) {

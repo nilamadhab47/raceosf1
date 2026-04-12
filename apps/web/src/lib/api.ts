@@ -101,6 +101,10 @@ export const api = {
   getTrackMap: () => fetchJSON<TrackMapData>("/api/track-map"),
   getDriverPositions: (lap: number) => fetchJSON<DriverPosition[]>(`/api/driver-positions?lap=${lap}`),
 
+  // Session / telemetry loading status
+  getSessionStatus: () =>
+    fetchJSON<{ session_loaded: boolean; telemetry_loaded: boolean; telemetry_loading: boolean }>("/api/session/status"),
+
   // AI
   getAIInsights: (lap?: number) =>
     fetchJSON<Insight[]>(lap != null ? `/api/ai/insights?lap=${lap}` : "/api/ai/insights"),

@@ -43,8 +43,8 @@ const TelemetryChartInner = () => {
   const speedData = useMemo(() => {
     if (!telemetry1 && !telemetry2) return [];
     const maxLen = Math.max(
-      telemetry1?.distance.length || 0,
-      telemetry2?.distance.length || 0
+      telemetry1?.distance?.length || 0,
+      telemetry2?.distance?.length || 0
     );
     const data = [];
     for (let i = 0; i < maxLen; i++) {

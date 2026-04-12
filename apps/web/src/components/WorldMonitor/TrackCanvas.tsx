@@ -17,7 +17,7 @@
  *   - All cars move continuously as lapProgress advances
  */
 
-import { useEffect, useRef, useState, memo, useCallback, useMemo } from "react";
+import { useEffect, useRef, useState, memo, useCallback } from "react";
 import { useF1Store } from "@/store/f1-store";
 import { useTimeline } from "@/engines/Timeline";
 import { useEventEngine } from "@/engines/EventEngine";
@@ -26,6 +26,7 @@ import { resolveTrack } from "@/lib/trackMapping";
 import { api } from "@/lib/api";
 import { EventBanner } from "./EventBanner";
 import { EventReplayModal } from "./EventReplayModal";
+import { TrackLoadingOverlay } from "./TrackLoadingOverlay";
 import type { DriverPosition } from "@/lib/types";
 
 /* ── Types ────────────────────────────────────────────────────────── */
@@ -150,6 +151,7 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
   const [trackPathD, setTrackPathD] = useState("");
   const [pathSamples, setPathSamples] = useState<TrackSample[]>([]);
   const [hoveredDriver, setHoveredDriver] = useState<string | null>(null);
+  const [telemetryReady, setTelemetryReady] = useState(false);
 
   // Refs for animation data (never cause re-renders)
   const driverSlotsRef = useRef<DriverSlot[]>([]);
@@ -163,10 +165,11 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
 
   // For React UI (leaderboard bar at bottom, battle detection)
   const [carPositions, setCarPositions] = useState<{ driver: string; x: number; y: number; teamColor: string; position: number }[]>([]);
+  const battlesRef = useRef<Set<string>>(new Set());
 
   const trackInfo = session ? resolveTrack(session.circuit) : null;
 
-  /* ── 1. Fetch track outline ─────────────────────────────────────── */
+  /* ── 1. Load track outline — instant from static SVG, upgrade from API ── */
 
   useEffect(() => {
     if (!session) return;
@@ -177,20 +180,83 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
     prevLapRef.current = -1;
     setCarPositions([]);
     setHoveredDriver(null);
+    setTelemetryReady(false);
 
-    api.getTrackMap().then((data) => {
-      if (data?.x?.length > 1) {
-        const outline: TrackOutline = {
-          x: data.x as number[],
-          y: data.y as number[],
-          corners: (data.corners || []) as TrackOutline["corners"],
-        };
-        setTrackOutline(outline);
-        const d = buildTrackPath(outline);
-        setTrackPathD(d);
-        setPathSamples(samplePath(d, TRACK_SAMPLES));
-      }
-    }).catch(() => {});
+    let cancelled = false;
+    let pollTimer: ReturnType<typeof setTimeout> | null = null;
+    let retries = 0;
+    let hasStaticTrack = false;
+
+    // ─── Phase A: Instantly load static track SVG ───
+    const info = resolveTrack(session.circuit);
+    if (info?.svg) {
+      fetch(`/tracks/${info.svg}`)
+        .then((r) => r.text())
+        .then((svgText) => {
+          if (cancelled) return;
+          const parser = new DOMParser();
+          const doc = parser.parseFromString(svgText, "image/svg+xml");
+          const pathEl = doc.querySelector("path");
+          if (!pathEl) return;
+          const d = pathEl.getAttribute("d") || "";
+          if (!d) return;
+          // Static SVGs are 500x500 — sample then scale to 1000x1000
+          const rawSamples = samplePath(d, TRACK_SAMPLES);
+          if (rawSamples.length === 0) return;
+          const scaled = rawSamples.map((s) => ({ x: s.x * 2, y: s.y * 2, progress: s.progress }));
+          const scaledD =
+            `M ${scaled[0].x} ${scaled[0].y}` +
+            scaled.slice(1).map((s) => ` L ${s.x} ${s.y}`).join("") +
+            " Z";
+          setTrackPathD(scaledD);
+          setPathSamples(scaled);
+          setTelemetryReady(true);
+          hasStaticTrack = true;
+        })
+        .catch(() => {});
+    }
+
+    // ─── Phase B: Background — poll API for precise telemetry track ───
+    const tryFetchTrackMap = () => {
+      api.getTrackMap().then((data) => {
+        if (cancelled) return;
+        if (data?.x?.length > 1) {
+          const outline: TrackOutline = {
+            x: data.x as number[],
+            y: data.y as number[],
+            corners: (data.corners || []) as TrackOutline["corners"],
+          };
+          setTrackOutline(outline);
+          const d = buildTrackPath(outline);
+          setTrackPathD(d);
+          setPathSamples(samplePath(d, TRACK_SAMPLES));
+          setTelemetryReady(true);
+        } else if (!hasStaticTrack) {
+          // 202 or empty — keep polling only if we don't have a static track yet
+          pollTimer = setTimeout(tryFetchTrackMap, 3000);
+        } else {
+          // We have a static track, poll less aggressively for optional upgrade
+          retries++;
+          if (retries < 15) pollTimer = setTimeout(tryFetchTrackMap, 8000);
+        }
+      }).catch(() => {
+        if (cancelled) return;
+        retries++;
+        if (!hasStaticTrack && retries < 20) {
+          pollTimer = setTimeout(tryFetchTrackMap, 5000);
+        } else if (hasStaticTrack && retries < 10) {
+          pollTimer = setTimeout(tryFetchTrackMap, 10000);
+        }
+        // After max retries, just stop — static track is good enough
+      });
+    };
+
+    tryFetchTrackMap();
+
+    return () => {
+      cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
+    };
   }, [session]);
 
   /* ── 2. Fetch driver data on lap change ─────────────────────────── */
@@ -201,14 +267,23 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
     prevLapRef.current = currentLap;
     fetchingRef.current = true;
 
+    // Always fetch leaderboard (Phase 1 data — always available)
+    // Try driver positions too (Phase 2 data — may 202)
     Promise.all([
-      api.getDriverPositions(currentLap),
+      api.getDriverPositions(currentLap).catch(() => null),
       fetchLeaderboard(currentLap),
     ])
       .then(([positions]) => {
-        if (positions) buildDriverSlots(positions);
+        if (positions && Array.isArray(positions) && positions.length > 0 && positions[0]?.driver) {
+          buildDriverSlots(positions);
+        } else {
+          // Telemetry not ready — build slots from leaderboard alone
+          buildDriverSlotsFromLeaderboard();
+        }
       })
-      .catch(() => {})
+      .catch(() => {
+        buildDriverSlotsFromLeaderboard();
+      })
       .finally(() => { fetchingRef.current = false; });
   }, [session, currentLap, fetchLeaderboard]);
 
@@ -281,13 +356,75 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
     useEventEngine.getState().processLeaderboard(lb, currentLapNow, raceProgress);
   }, [setAvgLapTime]);
 
+  /** Fallback: build driver slots from leaderboard alone (no telemetry needed) */
+  const buildDriverSlotsFromLeaderboard = useCallback(() => {
+    const lb = useF1Store.getState().leaderboard;
+    if (lb.length === 0) return;
+    const currentLapNow = useTimeline.getState().currentLap;
+
+    const lapTimes = lb.filter((e) => e.last_lap_time && e.last_lap_time > 30).map((e) => e.last_lap_time!);
+    if (lapTimes.length > 3) {
+      const avg = lapTimes.reduce((a, b) => a + b, 0) / lapTimes.length;
+      setAvgLapTime(avg);
+    }
+    const currentAvgLapTime = useTimeline.getState().avgLapTime;
+
+    const slots: DriverSlot[] = lb.map((e) => {
+      const gap = e.gap_to_leader ?? 0;
+      const progressOffset = currentLapNow <= 2
+        ? e.position * 0.018
+        : gap / currentAvgLapTime;
+
+      const currentStint = e.stint ?? 0;
+      const prevStint = prevStintsRef.current.get(e.driver) ?? currentStint;
+      const isPitting = currentStint > prevStint && currentLapNow > 2;
+      prevStintsRef.current.set(e.driver, currentStint);
+
+      return {
+        driver: e.driver,
+        fullName: e.full_name,
+        team: e.team,
+        teamColor: e.team_color.startsWith("#") ? e.team_color : `#${e.team_color}`,
+        position: e.position,
+        lapTime: e.last_lap_time,
+        compound: e.compound ?? null,
+        gapToLeader: e.gap_to_leader ?? null,
+        progressOffset,
+        isPitting,
+        pitCompound: isPitting ? (e.compound ?? null) : null,
+      };
+    });
+
+    slots.sort((a, b) => a.position - b.position);
+    driverSlotsRef.current = slots;
+
+    for (const slot of slots) {
+      let anim = carAnimRef.current.get(slot.driver);
+      if (!anim) {
+        anim = {
+          targetOffset: slot.progressOffset,
+          smoothOffset: slot.progressOffset,
+          targetSpread: slot.position * 0.002,
+          smoothSpread: slot.position * 0.002,
+          currentX: 500, currentY: 500,
+        };
+        carAnimRef.current.set(slot.driver, anim);
+      }
+      anim.targetOffset = slot.progressOffset;
+      anim.targetSpread = slot.position * 0.002;
+    }
+
+    const raceProgress = useTimeline.getState().raceProgress;
+    useEventEngine.getState().processLeaderboard(lb, currentLapNow, raceProgress);
+  }, [setAvgLapTime]);
+
   /* ── 3. 60fps animation loop ────────────────────────────────────── */
 
   useEffect(() => {
     if (pathSamples.length === 0) return;
 
     let lastDomUpdate = 0;
-    const DOM_UPDATE_INTERVAL = 500; // update React state every 500ms (for bottom bar)
+    const DOM_UPDATE_INTERVAL = 2000; // update React state every 2s (bottom bar only — cosmetic)
 
     const animate = () => {
       const { lapProgress: lp } = useTimeline.getState();
@@ -302,6 +439,9 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
 
       const now = performance.now();
       const positionsForReact: typeof carPositions = [];
+
+      // ── Per-car smooth animation ──
+      const framePositions: { driver: string; x: number; y: number }[] = [];
 
       for (const slot of slots) {
         // Get or init animation state
@@ -357,7 +497,7 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
           pitLabel.setAttribute("visibility", slot.isPitting ? "visible" : "hidden");
         }
 
-
+        framePositions.push({ driver: slot.driver, x: drawX, y: drawY });
 
         positionsForReact.push({
           driver: slot.driver,
@@ -366,6 +506,36 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
           teamColor: slot.teamColor,
           position: slot.position,
         });
+      }
+
+      // ── Battle detection — every frame, pure DOM updates ──
+      const newBattles = new Set<string>();
+      for (let i = 0; i < framePositions.length; i++) {
+        for (let j = i + 1; j < framePositions.length; j++) {
+          const dx = framePositions[i].x - framePositions[j].x;
+          const dy = framePositions[i].y - framePositions[j].y;
+          if (dx * dx + dy * dy < BATTLE_PROXIMITY * BATTLE_PROXIMITY) {
+            newBattles.add(framePositions[i].driver);
+            newBattles.add(framePositions[j].driver);
+          }
+        }
+      }
+      // Update battle ring visibility via DOM (no React re-render)
+      for (const slot of slots) {
+        const battleRing = svg.getElementById(`battle-${slot.driver}`);
+        if (battleRing) {
+          battleRing.setAttribute("visibility", newBattles.has(slot.driver) ? "visible" : "hidden");
+        }
+      }
+      battlesRef.current = newBattles;
+
+      // Update battle badge text via DOM
+      const badgeEl = document.getElementById("battle-badge-text");
+      if (badgeEl) {
+        const battleCount = Math.floor(newBattles.size / 2);
+        badgeEl.textContent = battleCount > 0
+          ? `⚔ ${battleCount} BATTLE${battleCount > 1 ? "S" : ""}`
+          : "";
       }
 
       // Throttled React state update for bottom bar
@@ -399,22 +569,7 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
     };
   }, [pathSamples]);
 
-  /* ── Battle detection (derived from carPositions, for React UI) ── */
-
-  const battles = useMemo(() => {
-    const set = new Set<string>();
-    for (let i = 0; i < carPositions.length; i++) {
-      for (let j = i + 1; j < carPositions.length; j++) {
-        const dx = carPositions[i].x - carPositions[j].x;
-        const dy = carPositions[i].y - carPositions[j].y;
-        if (dx * dx + dy * dy < BATTLE_PROXIMITY * BATTLE_PROXIMITY) {
-          set.add(carPositions[i].driver);
-          set.add(carPositions[j].driver);
-        }
-      }
-    }
-    return set;
-  }, [carPositions]);
+  /* ── Battle detection is now in the rAF loop (ref-based) ──────── */
 
   const onHover = useCallback((d: string | null) => setHoveredDriver(d), []);
   const onClickCar = useCallback(
@@ -439,6 +594,11 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
 
   return (
     <div className="h-full w-full relative overflow-hidden bg-f1-bg">
+      {/* Telemetry loading overlay */}
+      {!telemetryReady && (
+        <TrackLoadingOverlay trackInfo={trackInfo} circuitName={session.circuit} />
+      )}
+
       {/* Track info overlay */}
       <div className="absolute top-3 right-3 z-10 glass-panel rounded-lg px-3 py-1.5 pointer-events-none">
         <h2 className="text-[10px] font-display font-bold uppercase tracking-[0.25em] text-f1-text-dim">
@@ -459,10 +619,9 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
       </div>
 
       {/* Battle badge */}
-      {layers.battles && battles.size > 0 && (
+      {layers.battles && (
         <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1 rounded-full glass-panel border border-f1-red/30">
-          <span className="text-[10px] font-display font-bold uppercase tracking-wider text-f1-red animate-pulse">
-            ⚔ {Math.floor(battles.size / 2)} BATTLE{battles.size > 2 ? "S" : ""}
+          <span id="battle-badge-text" className="text-[10px] font-display font-bold uppercase tracking-wider text-f1-red animate-pulse">
           </span>
         </div>
       )}
@@ -530,7 +689,6 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
         {layers.cars && slots.map((slot) => {
           const active = hoveredDriver === slot.driver || focusedDriver === slot.driver;
           const r = active ? 14 : 10;
-          const inBattle = battles.has(slot.driver);
           return (
             <g
               key={slot.driver}
@@ -541,12 +699,14 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
               onMouseLeave={() => onHover(null)}
               onClick={() => onClickCar(slot.driver)}
             >
-              {/* Battle ring */}
-              {inBattle && layers.battles && (
-                <circle r={20} fill="none" stroke={slot.teamColor} strokeWidth={2} opacity={0.5}>
-                  <animate attributeName="r" values="14;22;14" dur="1.5s" repeatCount="indefinite" />
-                  <animate attributeName="opacity" values="0.6;0.2;0.6" dur="1.5s" repeatCount="indefinite" />
-                </circle>
+              {/* Battle ring — always rendered, visibility toggled via rAF DOM updates */}
+              {layers.battles && (
+                <g id={`battle-${slot.driver}`} visibility="hidden">
+                  <circle r={20} fill="none" stroke={slot.teamColor} strokeWidth={2} opacity={0.5}>
+                    <animate attributeName="r" values="14;22;14" dur="1.5s" repeatCount="indefinite" />
+                    <animate attributeName="opacity" values="0.6;0.2;0.6" dur="1.5s" repeatCount="indefinite" />
+                  </circle>
+                </g>
               )}
 
               {/* Outer glow */}
@@ -559,7 +719,7 @@ export const TrackCanvas = memo(function TrackCanvas({ layers }: TrackCanvasProp
                 fill={slot.teamColor}
                 stroke={focusedDriver === slot.driver ? "#fff" : slot.position === 1 ? "#E10600" : "rgba(255,255,255,0.6)"}
                 strokeWidth={focusedDriver === slot.driver ? 2.5 : slot.position === 1 ? 2 : 1.5}
-                filter={inBattle ? "url(#car-glow-strong)" : "url(#car-glow)"}
+                filter="url(#car-glow)"
               />
 
               {/* Position number */}

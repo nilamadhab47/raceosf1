@@ -98,20 +98,20 @@ _executor = ThreadPoolExecutor(max_workers=2)
 
 def _get_session():
     global _current_session
-    if _current_session is None:
-        _current_session = load_session(_current_year, _current_gp, _current_session_type)
+    # Always pull latest from session cache — Phase 2 background thread may have
+    # replaced the session object with one that includes telemetry data.
+    _current_session = load_session(_current_year, _current_gp, _current_session_type)
     return _current_session
 
 
 async def _get_session_async():
     """Load session in a thread pool so the event loop stays responsive."""
     global _current_session
-    if _current_session is None:
-        loop = asyncio.get_event_loop()
-        _current_session = await loop.run_in_executor(
-            _executor,
-            load_session, _current_year, _current_gp, _current_session_type,
-        )
+    loop = asyncio.get_event_loop()
+    _current_session = await loop.run_in_executor(
+        _executor,
+        load_session, _current_year, _current_gp, _current_session_type,
+    )
     return _current_session
 
 
@@ -214,17 +214,23 @@ def api_track_map():
     """Get circuit outline coordinates for track map rendering.
     
     Requires telemetry to be loaded (Phase 2). Returns 202 while loading.
+    Returns empty fallback if telemetry loaded but track data unavailable.
     """
-    if not has_telemetry(_current_year, _current_gp, _current_session_type):
-        from fastapi.responses import JSONResponse
-        return JSONResponse(
-            status_code=202,
-            content={"status": "loading", "message": "Track data loading (needs telemetry)."},
-        )
+    status = get_loading_status(_current_year, _current_gp, _current_session_type)
+    if not status["telemetry_loaded"]:
+        if status["telemetry_loading"]:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=202,
+                content={"status": "loading", "message": "Track data loading (needs telemetry)."},
+            )
+        # Telemetry not loading and not loaded — won't get data
+        return {"x": [], "y": [], "corners": [], "fallback": True}
     session = _get_session()
     result = get_track_map(session)
     if "error" in result:
-        raise HTTPException(status_code=404, detail=result["error"])
+        # Telemetry loaded but track data unavailable for this session
+        return {"x": [], "y": [], "corners": [], "fallback": True}
     return result
 
 
