@@ -42,8 +42,17 @@ const MobileDashboardInner = () => {
   const [activeTab, setActiveTab] = useState<TabKey>("race");
   const [layers] = useState(DEFAULT_LAYERS);
   const contentRef = useRef<HTMLDivElement>(null);
-  const { session, loading } = useF1Store();
+  const { session, loading, error, loadSession } = useF1Store();
   const { isPlaying, currentLap, totalLaps } = useTimeline();
+  const [loadingElapsed, setLoadingElapsed] = useState(0);
+
+  // Track how long loading has been running (show "taking longer" hint)
+  useEffect(() => {
+    if (!loading || session) { setLoadingElapsed(0); return; }
+    const start = Date.now();
+    const iv = setInterval(() => setLoadingElapsed(Math.floor((Date.now() - start) / 1000)), 1000);
+    return () => clearInterval(iv);
+  }, [loading, session]);
 
   // Animate tab switch
   const handleTabChange = useCallback((tab: TabKey) => {
@@ -92,12 +101,36 @@ const MobileDashboardInner = () => {
         </div>
       )}
 
+      {/* ── Error state ── */}
+      {error && !loading && !session && (
+        <div className="flex-1 flex items-center justify-center px-6">
+          <div className="text-center">
+            <div className="w-10 h-10 rounded-full border-2 border-f1-red/40 flex items-center justify-center mx-auto mb-3">
+              <span className="text-f1-red text-lg">!</span>
+            </div>
+            <p className="text-sm font-body text-f1-text mb-1">Failed to load session</p>
+            <p className="text-xs font-body text-f1-text-muted mb-4 max-w-[260px] mx-auto">{error}</p>
+            <button
+              onClick={() => loadSession(2024, "Bahrain")}
+              className="px-4 py-2 rounded-md bg-f1-red text-white text-xs font-display font-bold uppercase tracking-wider active:scale-95 transition-transform"
+            >
+              Retry
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── Loading state ── */}
       {loading && !session && (
         <div className="flex-1 flex items-center justify-center">
           <div className="text-center">
             <div className="w-8 h-8 rounded-full border-2 border-f1-red border-t-transparent animate-spin mx-auto mb-3" />
             <p className="text-sm font-body text-f1-text-dim">Loading session...</p>
+            {loadingElapsed >= 10 && (
+              <p className="text-[11px] font-body text-f1-text-muted mt-2">
+                Taking longer than usual — first load caches data on the server
+              </p>
+            )}
           </div>
         </div>
       )}

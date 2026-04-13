@@ -19,19 +19,39 @@ import type {
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-async function fetchJSON<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options?.headers,
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || `API error: ${res.status}`);
+const DEFAULT_TIMEOUT = 30_000;  // 30 seconds
+const LONG_TIMEOUT = 90_000;    // 90 seconds (session load on cold start)
+
+async function fetchJSON<T>(
+  path: string,
+  options?: RequestInit & { timeout?: number },
+): Promise<T> {
+  const { timeout = DEFAULT_TIMEOUT, ...init } = options ?? {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeout);
+
+  try {
+    const res = await fetch(`${API_BASE}${path}`, {
+      ...init,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/json",
+        ...init?.headers,
+      },
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || `API error: ${res.status}`);
+    }
+    return res.json();
+  } catch (e: unknown) {
+    if (e instanceof DOMException && e.name === "AbortError") {
+      throw new Error("Request timed out — check your connection and try again");
+    }
+    throw e;
+  } finally {
+    clearTimeout(timer);
   }
-  return res.json();
 }
 
 export const api = {
@@ -40,7 +60,7 @@ export const api = {
   loadSession: (year: number, gp: string, sessionType = "R") =>
     fetchJSON<SessionInfo>(
       `/api/session/load?year=${year}&gp=${encodeURIComponent(gp)}&session_type=${sessionType}`,
-      { method: "POST" }
+      { method: "POST", timeout: LONG_TIMEOUT }
     ),
   getAvailableSessions: () => fetchJSON<AvailableSession[]>("/api/available-sessions"),
 
