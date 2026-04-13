@@ -76,9 +76,9 @@ export default function Home() {
     <ToastProvider>
       {showOverlay && <LabEntry />}
 
-      {/* ── Mobile layout ── */}
+      {/* ── Mobile gate — desktop only ── */}
       {mounted && isMobile ? (
-        <MobileDashboard />
+        <MobileGate />
       ) : (
         /* ── Desktop layout ── */
         <div className="h-screen flex flex-col overflow-hidden bg-f1-bg" style={{ background: "radial-gradient(ellipse at 50% 0%, rgba(225,6,0,0.08) 0%, #000000 55%)" }}>
