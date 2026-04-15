@@ -113,20 +113,4 @@ export const TOUR_STEPS: Step[] = [
     placement: "top",
     skipBeacon: true,
   },
-  {
-    target: '[data-tour="settings"]',
-    title: "Settings — Toggle Panels",
-    content:
-      "Click the gear icon to open Settings. You can enable or disable any panel to customise your dashboard layout.",
-    placement: "bottom",
-    skipBeacon: true,
-  },
-  {
-    target: ".react-grid-layout",
-    title: "Drag & Rearrange",
-    content:
-      "Every panel is draggable! Grab any panel header and move it wherever you like to build your perfect layout.",
-    placement: "auto",
-    skipBeacon: true,
-  },
 ];

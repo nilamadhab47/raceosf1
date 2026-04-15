@@ -122,19 +122,22 @@ export function LabEntry() {
         isMuted || sessionStorage.getItem("raceos-greeting-played") === "1";
 
       if (shouldSkipVoice) {
-        // No voice — show text immediately, hold 3s, finish
+        // No voice — show text immediately, hold 2s, finish
         revealText();
-        fallbackTimer = setTimeout(finishGreeting, 3000);
+        fallbackTimer = setTimeout(finishGreeting, 2000);
         return;
       }
 
       sessionStorage.setItem("raceos-greeting-played", "1");
 
-      // Use pre-fetched blob if available, otherwise fetch now
+      // Use pre-fetched blob if available, otherwise fetch with a timeout
       let blob = audioBlobRef.current;
       if (!blob) {
         try {
-          blob = await api.synthesizeSpeech(getGreeting());
+          blob = await Promise.race([
+            api.synthesizeSpeech(getGreeting()),
+            new Promise<null>((r) => setTimeout(() => r(null), 4000)),
+          ]);
         } catch {
           blob = null;
         }
@@ -165,7 +168,7 @@ export function LabEntry() {
         URL.revokeObjectURL(url);
         if (!cancelled) {
           revealText();
-          fallbackTimer = setTimeout(finishGreeting, 3000);
+          fallbackTimer = setTimeout(finishGreeting, 2000);
         }
       };
 
@@ -173,7 +176,7 @@ export function LabEntry() {
         await audio.play();
       } catch {
         revealText();
-        fallbackTimer = setTimeout(finishGreeting, 3000);
+        fallbackTimer = setTimeout(finishGreeting, 2000);
       }
     };
 
